@@ -1,24 +1,16 @@
 package com.design.artwork.controller; // ✅ 已修正包名
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.design.artwork.entity.Artwork;
 import com.design.artwork.mapper.ArtworkMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
-
-import javax.imageio.ImageIO;
-import java.awt.image.BufferedImage;
-import java.io.File;
 import java.io.IOException;
 import java.time.LocalDateTime;
-import java.util.UUID;
-import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import java.util.List;
-// ... 记得导入 Files 和 Path 包
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import com.design.artwork.utils.OssUtil;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/artwork")
@@ -33,33 +25,33 @@ public class ArtworkController {
     private OssUtil ossUtil; // 注入 OSS 工具
 
     /**
-     * 上传接口 (OSS 版)
+     * 1. 上传接口 (接收 category 参数)
      */
     @PostMapping("/upload")
     public String upload(@RequestParam("file") MultipartFile file,
-                         @RequestParam(value = "title", defaultValue = "未命名") String title) {
+                         @RequestParam(value = "title", defaultValue = "未命名") String title,
+                         @RequestParam(value = "category", defaultValue = "默认") String category) { // 👈 新增参数
         if (file.isEmpty()) return "文件为空";
 
         try {
-            // 1. 直接调用工具类上传，拿到云端 URL
+            // 上传到 OSS
             String ossUrl = ossUtil.uploadFile(file);
 
-            // 2. 存入数据库
+            // 存入数据库
             Artwork artwork = new Artwork();
             artwork.setTitle(title);
+            artwork.setCategory(category); // 👈 保存分类
             artwork.setImageUrl(ossUrl);
-            // filePath 现在可以存 URL，或者存 OSS 里的文件名，方便删除
             artwork.setFilePath(ossUrl);
             artwork.setCreateTime(LocalDateTime.now());
 
-            // 注意：因为没有存本地，没法直接读取 width/height
-            // 如果非要存宽高，需要先用 ImageIO 读流，比较麻烦，这里暂时设为 0 或由前端处理
+            // 宽高暂时设为0，如果需要可以去读图片流
             artwork.setWidth(0);
             artwork.setHeight(0);
 
             artworkMapper.insert(artwork);
 
-            return "上传成功！图片链接: " + ossUrl;
+            return "上传成功";
 
         } catch (IOException e) {
             e.printStackTrace();
@@ -67,16 +59,41 @@ public class ArtworkController {
         }
     }
     /**
-     * 获取画稿列表 (按创建时间倒序排列)
+     * 2. 获取列表接口 (支持按 category 筛选)
      */
     @GetMapping("/list")
-    public List<Artwork> getList() {
-        // QueryWrapper 是 MyBatis-Plus 的查询构建器
-        QueryWrapper<Artwork> query = new QueryWrapper<>();
-        // 按 id 倒序 (或者 create_time 倒序)，这样最新上传的排前面
-        query.orderByDesc("id");
+    public List<Artwork> getList(@RequestParam(required = false) String title,
+                                 @RequestParam(required = false) String category) { // 👈 新增参数
+        LambdaQueryWrapper<Artwork> wrapper = new LambdaQueryWrapper<>();
 
-        return artworkMapper.selectList(query);
+        // 模糊查询标题
+        if (title != null && !title.isEmpty()) {
+            wrapper.like(Artwork::getTitle, title);
+        }
+
+        // 精确查询分类 (如果传了 category 且不是 "全部")
+        if (category != null && !category.isEmpty() && !"全部".equals(category)) {
+            wrapper.eq(Artwork::getCategory, category);
+        }
+
+        wrapper.orderByDesc(Artwork::getCreateTime);
+        return artworkMapper.selectList(wrapper);
+    }
+    /**
+     * 3. 获取所有分类接口 (新增方法)
+     * 用于前端下拉框和 Tab 栏的显示
+     */
+    @GetMapping("/categories")
+    public List<String> getCategories() {
+        // 查询所有数据
+        List<Artwork> list = artworkMapper.selectList(null);
+
+        // 使用 Stream 流提取 category 字段并去重
+        return list.stream()
+                .map(Artwork::getCategory) // 取出分类
+                .filter(c -> c != null && !c.isEmpty()) // 排除空值
+                .distinct() // 去重
+                .collect(Collectors.toList());
     }
     /**
      * 删除接口 (OSS 版)
