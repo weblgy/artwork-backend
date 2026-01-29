@@ -18,6 +18,7 @@ import java.util.List;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import com.design.artwork.utils.OssUtil;
 
 @RestController
 @RequestMapping("/api/artwork")
@@ -28,42 +29,37 @@ public class ArtworkController {
     @Autowired
     private ArtworkMapper artworkMapper;
 
-    // ⚠️⚠️ 请务必修改为你电脑上的真实路径！
-    // 结尾必须带斜杠 "/"
-    private static final String UPLOAD_FOLDER = "D:/MyProject/images/";
-    private static final String BASE_URL = "http://localhost:8080/images/";
+    @Autowired
+    private OssUtil ossUtil; // 注入 OSS 工具
 
+    /**
+     * 上传接口 (OSS 版)
+     */
     @PostMapping("/upload")
     public String upload(@RequestParam("file") MultipartFile file,
                          @RequestParam(value = "title", defaultValue = "未命名") String title) {
         if (file.isEmpty()) return "文件为空";
 
         try {
-            File dir = new File(UPLOAD_FOLDER);
-            if (!dir.exists()) dir.mkdirs();
+            // 1. 直接调用工具类上传，拿到云端 URL
+            String ossUrl = ossUtil.uploadFile(file);
 
-            String originalName = file.getOriginalFilename();
-            String suffix = originalName.substring(originalName.lastIndexOf("."));
-            String newName = UUID.randomUUID().toString() + suffix;
-
-            File dest = new File(dir, newName);
-            file.transferTo(dest);
-
-            BufferedImage img = ImageIO.read(dest);
-            int width = img.getWidth();
-            int height = img.getHeight();
-
+            // 2. 存入数据库
             Artwork artwork = new Artwork();
             artwork.setTitle(title);
-            artwork.setImageUrl(BASE_URL + newName);
-            artwork.setFilePath(dest.getAbsolutePath());
-            artwork.setWidth(width);
-            artwork.setHeight(height);
+            artwork.setImageUrl(ossUrl);
+            // filePath 现在可以存 URL，或者存 OSS 里的文件名，方便删除
+            artwork.setFilePath(ossUrl);
             artwork.setCreateTime(LocalDateTime.now());
+
+            // 注意：因为没有存本地，没法直接读取 width/height
+            // 如果非要存宽高，需要先用 ImageIO 读流，比较麻烦，这里暂时设为 0 或由前端处理
+            artwork.setWidth(0);
+            artwork.setHeight(0);
 
             artworkMapper.insert(artwork);
 
-            return "上传成功！图片链接: " + artwork.getImageUrl();
+            return "上传成功！图片链接: " + ossUrl;
 
         } catch (IOException e) {
             e.printStackTrace();
@@ -83,29 +79,28 @@ public class ArtworkController {
         return artworkMapper.selectList(query);
     }
     /**
-     * 删除画稿
+     * 删除接口 (OSS 版)
      */
     @DeleteMapping("/delete/{id}")
     public String delete(@PathVariable Long id) {
-        // 1. 先查出来，为了获取文件路径
         Artwork artwork = artworkMapper.selectById(id);
-        if (artwork == null) {
-            return "画稿不存在";
+        if (artwork != null) {
+            // 1. 从阿里云删除图片
+            ossUtil.deleteFile(artwork.getImageUrl());
+            // 2. 从数据库删除记录
+            artworkMapper.deleteById(id);
         }
-
-        // 2. 删硬盘上的文件 (这一步可选，但推荐加上)
-        try {
-            if (artwork.getFilePath() != null) {
-                Path path = Paths.get(artwork.getFilePath());
-                Files.deleteIfExists(path);
-            }
-        } catch (IOException e) {
-            e.printStackTrace(); // 文件删失败不影响删数据库，记录日志即可
-        }
-
-        // 3. 删数据库
-        artworkMapper.deleteById(id);
-
         return "删除成功";
+    }
+    /**
+     * 修改画稿标题
+     */
+    @PostMapping("/update") // 也可以用 @PutMapping
+    public String update(@RequestBody Artwork artwork) {
+        // 这里会自动根据 artwork.id 去更新其他字段
+        // 因为我们只传了 id 和 title，所以只会更新 title
+        // updateById 是 MyBatis-Plus 自带的神技
+        artworkMapper.updateById(artwork);
+        return "修改成功";
     }
 }
