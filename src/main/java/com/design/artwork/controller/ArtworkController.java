@@ -1,6 +1,7 @@
 package com.design.artwork.controller; // ✅ 已修正包名
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.design.artwork.entity.Artwork;
 import com.design.artwork.mapper.ArtworkMapper;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -10,6 +11,8 @@ import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.List;
 import com.design.artwork.utils.OssUtil;
+
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @RestController
@@ -119,5 +122,46 @@ public class ArtworkController {
         // updateById 是 MyBatis-Plus 自带的神技
         artworkMapper.updateById(artwork);
         return "修改成功";
+    }
+    // --- 新增：批量操作接口 ---
+
+    /**
+     * 4. 批量删除
+     * @param ids 前端传来的 ID 列表，例如 [1, 2, 3]
+     */
+    @DeleteMapping("/delete/batch")
+    public String deleteBatch(@RequestBody List<Integer> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return "请选择要删除的项目";
+        }
+        // MyBatis Plus 自带的批量删除，非常方便
+        artworkMapper.deleteBatchIds(ids);
+        return "批量删除成功";
+    }
+
+    /**
+     * 5. 批量修改分类
+     * @param params 包含 ids (列表) 和 category (新分类名称)
+     */
+    @PostMapping("/update/batch/category")
+    public String updateBatchCategory(@RequestBody Map<String, Object> params) {
+        // 解析参数
+        List<Integer> ids = (List<Integer>) params.get("ids");
+        String newCategory = (String) params.get("category");
+
+        if (ids == null || ids.isEmpty() || newCategory == null) {
+            return "参数错误";
+        }
+
+        // 构造更新条件：UPDATE artwork SET category = '新分类' WHERE id IN (1, 2, 3)
+        Artwork artwork = new Artwork();
+        artwork.setCategory(newCategory);
+
+        UpdateWrapper<Artwork> updateWrapper = new UpdateWrapper<>();
+        updateWrapper.in("id", ids);
+
+        artworkMapper.update(artwork, updateWrapper);
+
+        return "批量移动成功";
     }
 }
