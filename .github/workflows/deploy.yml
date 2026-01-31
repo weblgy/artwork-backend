@@ -54,6 +54,9 @@ jobs:
             # 2. 启动新进程 (使用 prod 生产环境配置)
             # ⚠️ 注意：这里的文件名 artwork-0.0.1-SNAPSHOT.jar 必须跟你 pom.xml 生成的一致
             # 如果不确定，可以去 target 目录看一眼，或者直接用 *.jar 通配符(不推荐)
-            nohup java -jar /www/jar/artwork-0.0.1-SNAPSHOT.jar --spring.profiles.active=prod > /www/jar/app.log 2>&1 &
-            
+            nohup /www/server/java/jdk-17.0.8/bin/java -jar /www/jar/artwork-0.0.1-SNAPSHOT.jar \
+  --spring.profiles.active=prod \
+  --aliyun.oss.access-key-id=${{ secrets.ALIYUN_AK }} \
+  --aliyun.oss.access-key-secret=${{ secrets.ALIYUN_SK }} \
+  > /www/jar/app.log 2>&1 &
             echo "后端重启命令已发送！"
