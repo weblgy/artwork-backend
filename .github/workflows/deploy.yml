@@ -1,43 +1,50 @@
-deploy:
-  runs-on: ubuntu-latest
-  steps:
-    - name: 1. 拉取代码
-      uses: actions/checkout@v3
+name: 后端自动部署 (Backend Deploy)
 
-    - name: 2. 设置 Java 环境
-      uses: actions/setup-java@v3
-      with:
-        distribution: 'temurin'
-        java-version: '17'
+on:
+  push:
+    branches: [ main ]
 
-    - name: 3. Maven 打包
-      run: mvn clean package -DskipTests
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 1. 拉取代码
+        uses: actions/checkout@v3
 
-    - name: 4. 上传 Jar 包到服务器
-      uses: appleboy/scp-action@master
-      with:
-        # 👇 检查这里：是不是叫 HOST ?
-        host: ${{ secrets.HOST }}
-        # 👇 检查这里：是不是叫 USERNAME ? (或者直接写死 root)
-        username: ${{ secrets.USERNAME }}
-        # 👇 检查这里：是不是叫 PASSWORD ?
-        password: ${{ secrets.PASSWORD }}
-        source: "target/*.jar"
-        target: "/www/jar/"
-        strip_components: 1
+      - name: 2. 设置 Java 环境
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '17'
 
-    - name: 5. 重启 Java 服务
-      uses: appleboy/ssh-action@master
-      with:
-        # 👇 这里也要改，必须和上面一样
-        host: ${{ secrets.HOST }}
-        username: ${{ secrets.USERNAME }}
-        password: ${{ secrets.PASSWORD }}
-        script: |
-          echo "--- 开始部署 ---"
-          # 杀进程
-          ps -ef | grep artwork | grep -v grep | awk '{print $2}' | xargs -r kill -9
-          sleep 2
-          # 启动 (注意：这里用了绝对路径，且 Secrets 还是用 ALIYUN_AK/SK，请确认这两个名字也是对的)
-          nohup /www/server/java/jdk-17.0.8/bin/java -jar /www/jar/artwork-0.0.1-SNAPSHOT.jar --spring.profiles.active=prod --aliyun.oss.access-key-id=${{ secrets.ALIYUN_AK }} --aliyun.oss.access-key-secret=${{ secrets.ALIYUN_SK }} > /www/jar/app.log 2>&1 &
-          echo "--- 部署完成 ---"
+      - name: 3. Maven 打包
+        run: mvn clean package -DskipTests
+
+      - name: 4. 上传 Jar 包到服务器
+        uses: appleboy/scp-action@master
+        with:
+          # ⚠️ 确保你的 GitHub Secrets 里叫 HOST, USERNAME, PASSWORD
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          password: ${{ secrets.PASSWORD }}
+          source: "target/*.jar"
+          target: "/www/jar/"
+          strip_components: 1
+
+      - name: 5. 重启 Java 服务
+        uses: appleboy/ssh-action@master
+        with:
+          # ⚠️ 必须和上面保持一致
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          password: ${{ secrets.PASSWORD }}
+          script: |
+            echo "--- 开始部署 ---"
+            # 1. 杀掉旧进程
+            ps -ef | grep artwork | grep -v grep | awk '{print $2}' | xargs -r kill -9
+            # 2. 等待端口释放
+            sleep 2
+            # 3. 启动新进程 (绝对路径 + 注入阿里云 Secrets)
+            # ⚠️ 确保 GitHub Secrets 里配了 ALIYUN_AK 和 ALIYUN_SK
+            nohup /www/server/java/jdk-17.0.8/bin/java -jar /www/jar/artwork-0.0.1-SNAPSHOT.jar --spring.profiles.active=prod --aliyun.oss.access-key-id=${{ secrets.ALIYUN_AK }} --aliyun.oss.access-key-secret=${{ secrets.ALIYUN_SK }} > /www/jar/app.log 2>&1 &
+            echo "--- 部署完成 ---"
