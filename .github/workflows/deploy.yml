@@ -40,11 +40,16 @@ jobs:
           password: ${{ secrets.PASSWORD }}
           script: |
             echo "--- 开始部署 ---"
+            
             # 1. 杀掉旧进程
             ps -ef | grep artwork | grep -v grep | awk '{print $2}' | xargs -r kill -9
+            
             # 2. 等待端口释放
             sleep 2
-            # 3. 启动新进程 (绝对路径 + 注入阿里云 Secrets)
-            # ⚠️ 确保 GitHub Secrets 里配了 ALIYUN_AK 和 ALIYUN_SK
-            nohup /www/server/java/jdk-17.0.8/bin/java -jar /www/jar/artwork-0.0.1-SNAPSHOT.jar --spring.profiles.active=prod --aliyun.oss.access-key-id=${{ secrets.ALIYUN_AK }} --aliyun.oss.access-key-secret=${{ secrets.ALIYUN_SK }} > /www/jar/app.log 2>&1 &
+            
+            # 3. 启动新进程
+            # ⚠️ 关键修改：把参数名改成了驼峰写法 (accessKeyId / accessKeySecret)
+            # 这样才能匹配你代码里的 @Value("${aliyun.oss.accessKeyId}")
+            nohup /www/server/java/jdk-17.0.8/bin/java -jar /www/jar/artwork-0.0.1-SNAPSHOT.jar --spring.profiles.active=prod --aliyun.oss.accessKeyId=${{ secrets.ALIYUN_AK }} --aliyun.oss.accessKeySecret=${{ secrets.ALIYUN_SK }} > /www/jar/app.log 2>&1 &
+            
             echo "--- 部署完成 ---"
